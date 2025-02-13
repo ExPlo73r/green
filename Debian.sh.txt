@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# Eliminar paquetes conflictivos antes de instalar dependencias
+for pkg in docker.io docker-doc docker-compose podman-docker containerd runc; do 
+    sudo apt remove -y $pkg
+done
+
+# Instalar paquetes requeridos
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg
+
+# Crear directorio para claves y agregar clave GPG de Docker
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+# Agregar repositorio de Docker
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Actualizar repositorios e instalar Docker
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+# Agregar usuario al grupo docker (Requiere reiniciar sesión para aplicar cambios)
+sudo usermod -aG docker $USER
+
+echo "Para aplicar los cambios de grupo, cierra sesión y vuelve a iniciarla o ejecuta: newgrp docker"
+
+# Definir directorio de descarga
+export DOWNLOAD_DIR=$HOME/greenbone-community-container
+mkdir -p $DOWNLOAD_DIR
+
+# Descargar archivo de configuración de Greenbone
+curl -f -L -o "$DOWNLOAD_DIR/docker-compose.yml" https://greenbone.github.io/docs/latest/_static/docker-compose.yml
+
+# Cambiar al directorio de trabajo
+cd "$DOWNLOAD_DIR"
+
+# Descargar e iniciar contenedores
+docker compose pull
+docker compose up -d
+
+# Esperar unos segundos para la inicialización
+sleep 10
+docker compose logs -f &
+
+# Establecer contraseña para el usuario admin
+docker compose exec -u gvmd gvmd gvmd --user=admin --new-password='<password>'
+
+# Abrir interfaz web de Greenbone
+xdg-open "http://127.0.0.1:9392" 2>/dev/null >/dev/null &
+
+# Descargar e instalar script de configuración adicional
+curl -f -O https://greenbone.github.io/docs/latest/_static/setup-and-start-greenbone-community-edition.sh 
+chmod u+x setup-and-start-greenbone-community-edition.sh
+./setup-and-start-greenbone-community-edition.sh
+
